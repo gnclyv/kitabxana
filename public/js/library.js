@@ -1,6 +1,7 @@
 let currentUser = null;
 let allBooks = [];
 let selectedFile = null;
+let selectedCoverFile = null; // Üz qabığı şəkli üçün dəyişən
 let searchDebounce = null;
 
 const CATEGORY_ICONS = {
@@ -9,6 +10,7 @@ const CATEGORY_ICONS = {
 };
 
 function fmtSize(bytes) {
+  if (!bytes) return '0 KB';
   if (bytes < 1024 * 1024) return Math.round(bytes / 1024) + ' KB';
   return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
 }
@@ -34,7 +36,7 @@ async function loadBooks() {
   const category = document.getElementById('categorySelect').value;
   const params = new URLSearchParams();
   if (q) params.set('q', q);
-  if (category) params.set('category', category);
+  if (category && category !== 'Hamısı') params.set('category', category);
   const res = await fetch('/api/books?' + params.toString());
   if (!res.ok) return;
   const json = await res.json();
@@ -56,22 +58,32 @@ function render() {
   empty.style.display = 'none';
   grid.style.display = 'grid';
   grid.innerHTML = allBooks.map((b, i) => {
-    const hue = b.coverHue;
+    const hue = b.coverHue || Math.floor(Math.random() * 360);
     const isMine = b.uploadedBy === currentUser.id;
     const icon = CATEGORY_ICONS[b.category] || '❋';
+    
+    // Əgər kitabın şəkli (cover_image) varsa şəkli göstər, yoxdursa standart rəngli fonu göstər
+    const coverContent = b.cover_image 
+      ? `<img src="${b.cover_image}" alt="${escapeHtml(b.title)}" class="book-cover-img">`
+      : `<span class="glyph">${escapeHtml(initials(b.title))}</span>`;
+
+    const coverStyle = b.cover_image 
+      ? '' 
+      : `style="background: linear-gradient(150deg, hsl(${hue},48%,30%), hsl(${(hue+40)%360},55%,18%));"`;
+
     return `
     <div class="book-card" style="animation-delay:${Math.min(i * 0.05, 0.6)}s">
-      <div class="cover" style="background: linear-gradient(150deg, hsl(${hue},48%,30%), hsl(${(hue+40)%360},55%,18%));">
+      <div class="cover" ${coverStyle}>
+        ${coverContent}
         <span class="cat-tag">${icon} ${escapeHtml(b.category)}</span>
-        <span class="glyph">${escapeHtml(initials(b.title))}</span>
       </div>
       <div class="card-body">
         <h3>${escapeHtml(b.title)}</h3>
         <div class="author">${escapeHtml(b.author)}</div>
         <div class="desc">${escapeHtml(b.description || 'Təsvir əlavə edilməyib.')}</div>
         <div class="card-actions">
-          <button class="icon-btn" onclick="viewBook(${b.id})">👁 Oxu</button>
-          <button class="icon-btn" onclick="downloadBook(${b.id})">⬇ Endir</button>
+          <a href="/api/books/${b.id}/view" target="_blank" class="icon-btn">👁 Oxu</a>
+          <a href="/api/books/${b.id}/download" class="icon-btn">⬇ Endir</a>
           ${isMine ? `<button class="icon-btn del" onclick="deleteBook(${b.id})" title="Sil">🗑</button>` : ''}
         </div>
       </div>
@@ -84,13 +96,11 @@ function render() {
 }
 
 function escapeHtml(str) {
+  if (!str) return '';
   const div = document.createElement('div');
   div.textContent = str;
   return div.innerHTML;
 }
-
-function viewBook(id) { window.open('/api/books/' + id + '/view', '_blank'); }
-function downloadBook(id) { window.location.href = '/api/books/' + id + '/download'; }
 
 async function deleteBook(id) {
   if (!confirm('Bu kitabı silmək istədiyinizə əminsiniz?')) return;
@@ -121,13 +131,15 @@ async function logout() {
   window.location.href = '/';
 }
 
-// ---- Modal ----
+// ---- Modal Funksiyaları ----
 function openModal() { document.getElementById('modalOverlay').classList.add('open'); }
 function closeModal() {
   document.getElementById('modalOverlay').classList.remove('open');
   document.getElementById('uploadForm').reset();
   selectedFile = null;
+  selectedCoverFile = null;
   document.getElementById('dzFile').textContent = '';
+  document.getElementById('dzCoverFile').textContent = '';
   document.getElementById('progressWrap').classList.remove('show');
   document.getElementById('progressBar').style.width = '0%';
 }
@@ -135,6 +147,7 @@ document.getElementById('modalOverlay').addEventListener('click', (e) => {
   if (e.target.id === 'modalOverlay') closeModal();
 });
 
+// PDF Faylı Drag & Drop / Seçmə
 const dropZone = document.getElementById('dropZone');
 const pdfInput = document.getElementById('pdfInput');
 dropZone.addEventListener('click', () => pdfInput.click());
@@ -156,12 +169,35 @@ function setFile(file) {
   }
 }
 
+// Üz Qabığı (Şəkil) Drag & Drop / Seçmə
+const coverDropZone = document.getElementById('coverDropZone');
+const coverInput = document.getElementById('coverInput');
+coverDropZone.addEventListener('click', () => coverInput.click());
+coverInput.addEventListener('change', (e) => setCoverFile(e.target.files[0]));
+['dragenter', 'dragover'].forEach(ev => coverDropZone.addEventListener(ev, (e) => { e.preventDefault(); coverDropZone.classList.add('drag'); }));
+['dragleave', 'drop'].forEach(ev => coverDropZone.addEventListener(ev, (e) => { e.preventDefault(); coverDropZone.classList.remove('drag'); }));
+coverDropZone.addEventListener('drop', (e) => { if (e.dataTransfer.files[0]) setCoverFile(e.dataTransfer.files[0]); });
+
+function setCoverFile(file) {
+  if (!file) return;
+  if (!file.type.startsWith('image/')) {
+    showToast('Yalnız şəkil faylları (.png, .jpg, .jpeg) qəbul olunur', 'error');
+    return;
+  }
+  selectedCoverFile = file;
+  document.getElementById('dzCoverFile').textContent = '✓ ' + file.name + ' (' + fmtSize(file.size) + ')';
+}
+
+// Form Submit (Kitab Yükləmə)
 document.getElementById('uploadForm').addEventListener('submit', (e) => {
   e.preventDefault();
   if (!selectedFile) { showToast('Zəhmət olmasa PDF faylı seçin', 'error'); return; }
 
   const fd = new FormData();
   fd.append('pdf', selectedFile);
+  if (selectedCoverFile) {
+    fd.append('cover', selectedCoverFile); // Şəkli 'cover' açarı ilə əlavə edirik
+  }
   fd.append('title', document.getElementById('titleInput').value);
   fd.append('author', document.getElementById('authorInput').value);
   fd.append('category', document.getElementById('categoryInput').value);

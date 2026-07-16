@@ -106,12 +106,15 @@ async function findBookById(id) {
 }
 
 async function createBook(data) {
-  // cover_hue dəyərini zəmanətə almaq üçün stringə çeviririk (Postgres varchar xətası verməsin deyə)
+  // cover_hue dəyərini zəmanətə almaq üçün stringə çeviririk
   const hueString = data.cover_hue !== undefined ? data.cover_hue.toString() : '180';
+
+  // Yüklənən üz qabığı şəklini (əgər varsa) bazaya yazırıq, yoxdursa null gedir
+  const coverImage = data.cover_image || null;
 
   const rows = await sql`
     INSERT INTO books (
-      title, author, description, category, filename, 
+      title, author, description, category, filename, cover_image,
       original_name, filesize, cover_hue, uploaded_by
     )
     VALUES (
@@ -120,6 +123,7 @@ async function createBook(data) {
       ${data.description || ''}, 
       ${data.category || 'Digər'}, 
       ${data.filename}, 
+      ${coverImage},
       ${data.original_name}, 
       ${Number(data.filesize)}, 
       ${hueString}, 

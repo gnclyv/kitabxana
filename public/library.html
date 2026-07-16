@@ -39,16 +39,25 @@
   }
   @keyframes cardIn { to { opacity: 1; transform: translateY(0) scale(1); } }
   .book-card:hover { transform: translateY(-8px) rotateZ(-0.4deg); box-shadow: 0 22px 44px rgba(0,0,0,0.45); border-color: rgba(201,162,39,0.35); }
+  
+  /* Üz qabığı dizaynı - Əgər şəkil varsa tam doldursun */
   .cover {
     height: 220px; display: flex; align-items: flex-end; padding: 16px; position: relative; overflow: hidden;
   }
-  .cover::after { content: ''; position: absolute; inset: 0; background: linear-gradient(180deg, transparent 40%, rgba(0,0,0,0.55)); }
+  .cover img.book-cover-img {
+    position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 1;
+    transition: transform 0.5s ease;
+  }
+  .book-card:hover .book-cover-img { transform: scale(1.05); }
+  
+  .cover::after { content: ''; position: absolute; inset: 0; background: linear-gradient(180deg, transparent 40%, rgba(0,0,0,0.75)); z-index: 2; }
   .cover .cat-tag {
     position: absolute; top: 12px; left: 12px; font-size: 10.5px; letter-spacing: 0.5px; text-transform: uppercase;
-    background: rgba(0,0,0,0.35); padding: 5px 10px; border-radius: 20px; z-index: 2; font-weight: 600;
-    backdrop-filter: blur(4px);
+    background: rgba(0,0,0,0.55); padding: 5px 10px; border-radius: 20px; z-index: 3; font-weight: 600;
+    backdrop-filter: blur(4px); border: 1px solid rgba(255,255,255,0.08);
   }
-  .cover .glyph { font-family: var(--serif); font-size: 40px; z-index: 2; color: rgba(255,255,255,0.92); font-weight: 600; line-height: 1.15; }
+  .cover .glyph { font-family: var(--serif); font-size: 32px; z-index: 3; color: rgba(255,255,255,0.95); font-weight: 600; line-height: 1.15; text-shadow: 0 2px 8px rgba(0,0,0,0.8); }
+  
   .card-body { padding: 16px; }
   .card-body h3 { font-family: var(--serif); font-size: 16.5px; margin: 0 0 4px; line-height: 1.3; }
   .card-body .author { font-size: 12.5px; color: var(--cream-dim); margin-bottom: 10px; }
@@ -57,7 +66,7 @@
   .icon-btn {
     flex: 1; padding: 9px; border-radius: 8px; border: 1px solid var(--line); background: rgba(255,255,255,0.03);
     color: var(--cream); font-size: 12.5px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 6px;
-    transition: background .2s, transform .2s;
+    transition: background .2s, transform .2s; cursor: pointer; text-decoration: none;
   }
   .icon-btn:hover { background: rgba(201,162,39,0.15); transform: translateY(-1px); }
   .icon-btn.del { flex: 0 0 auto; width: 38px; color: #e08a8a; }
@@ -65,7 +74,7 @@
   .meta-row { display: flex; justify-content: space-between; font-size: 11px; color: var(--cream-dim); padding: 0 16px 14px; opacity: 0.7; }
 
   .empty-state { text-align: center; padding: 80px 20px; }
-  .empty-state .ic { font-size: 52px; margin-bottom: 16px; animation: bookFloat2 3s ease-in-out infinite; }
+  .empty-state .ic { font-size: 52px; margin-bottom: 166px; animation: bookFloat2 3s ease-in-out infinite; }
   @keyframes bookFloat2 { 0%,100% { transform: translateY(0);} 50% { transform: translateY(-10px);} }
   .empty-state h3 { font-family: var(--serif); font-size: 22px; margin: 0 0 8px; }
   .empty-state p { color: var(--cream-dim); margin: 0 0 22px; }
@@ -83,20 +92,21 @@
   @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
   .modal {
     width: 480px; max-width: 100%; max-height: 88vh; overflow-y: auto; padding: 32px;
-    animation: modalIn .35s cubic-bezier(.2,.8,.2,1);
   }
-  @keyframes modalIn { from { opacity: 0; transform: translateY(24px) scale(0.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
   .modal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
   .modal-head h2 { font-family: var(--serif); font-size: 22px; margin: 0; }
-  .close-btn { background: none; border: none; color: var(--cream-dim); font-size: 20px; }
+  .close-btn { background: none; border: none; color: var(--cream-dim); font-size: 20px; cursor: pointer; }
+  
+  /* Fayl/Şəkil seçmə zonaları */
   .drop-zone {
-    border: 2px dashed var(--line); border-radius: 12px; padding: 28px 16px; text-align: center;
-    margin-bottom: 20px; cursor: pointer; transition: border-color .25s, background .25s;
+    border: 2px dashed var(--line); border-radius: 12px; padding: 20px 16px; text-align: center;
+    margin-bottom: 16px; cursor: pointer; transition: border-color .25s, background .25s;
   }
   .drop-zone.drag { border-color: var(--gold); background: rgba(201,162,39,0.08); }
-  .drop-zone .dz-ic { font-size: 30px; margin-bottom: 8px; }
-  .drop-zone .dz-text { font-size: 13.5px; color: var(--cream-dim); }
-  .drop-zone .dz-file { font-size: 13px; color: var(--gold-bright); font-weight: 600; margin-top: 6px; }
+  .drop-zone .dz-ic { font-size: 26px; margin-bottom: 6px; }
+  .drop-zone .dz-text { font-size: 13px; color: var(--cream-dim); }
+  .drop-zone .dz-file { font-size: 12.5px; color: var(--gold-bright); font-weight: 600; margin-top: 6px; }
+
   .progress-wrap { height: 8px; border-radius: 6px; background: rgba(0,0,0,0.3); overflow: hidden; margin-top: 16px; display: none; }
   .progress-wrap.show { display: block; }
   .progress-bar { height: 100%; width: 0%; background: linear-gradient(90deg, var(--gold), var(--gold-bright)); transition: width .2s ease; border-radius: 6px; }
@@ -159,7 +169,6 @@
     </div>
   </div>
 
-  <!-- Upload Modal -->
   <div class="modal-overlay" id="modalOverlay">
     <div class="panel modal">
       <div class="modal-head">
@@ -167,12 +176,21 @@
         <button class="close-btn" onclick="closeModal()">✕</button>
       </div>
       <form id="uploadForm">
+        
         <div class="drop-zone" id="dropZone">
           <div class="dz-ic">📄</div>
           <div class="dz-text">PDF faylı bura sürükləyin və ya klikləyin</div>
           <div class="dz-file" id="dzFile"></div>
           <input type="file" id="pdfInput" accept="application/pdf,.pdf" style="display:none;">
         </div>
+
+        <div class="drop-zone" id="coverDropZone">
+          <div class="dz-ic">🖼️</div>
+          <div class="dz-text">Üz qabığı şəkli sürükləyin və ya klikləyin (İstəyə bağlı)</div>
+          <div class="dz-file" id="dzCoverFile"></div>
+          <input type="file" id="coverInput" accept="image/*" style="display:none;">
+        </div>
+
         <div class="field">
           <label>Kitabın adı</label>
           <input type="text" name="title" required id="titleInput">
