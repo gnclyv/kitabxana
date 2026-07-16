@@ -1,142 +1,164 @@
-// Sadə, asılılıqsız JSON-based verilənlər bazası.
-// better-sqlite3 əvəzinə istifadə olunur ki, Windows/Mac/Linux-da
-// heç bir native compile (Visual Studio / build tools) tələb olunmasın.
+// Neon Tech Postgres-based verilənlər bazası provayderi
+// Serverless mühitlər (Vercel) üçün optimallaşdırılmışdır.
 
-const fs = require('fs');
-const path = require('path');
+const { neon } = require('@neondatabase/serverless');
 
-const dataDir = path.join(__dirname, 'data');
-if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
-
-const usersFile = path.join(dataDir, 'users.json');
-const booksFile = path.join(dataDir, 'books.json');
-
-function readJson(file) {
-  if (!fs.existsSync(file)) return [];
-  try {
-    const raw = fs.readFileSync(file, 'utf8').trim();
-    if (!raw) return [];
-    return JSON.parse(raw);
-  } catch (e) {
-    console.error('Verilənlər bazası oxunarkən xəta:', file, e.message);
-    return [];
-  }
+// Vercel-də və ya lokalda DATABASE_URL-in mövcudluğunu yoxlayırıq
+if (!process.env.DATABASE_URL) {
+  throw new Error("DATABASE_URL mühit dəyişəni (environment variable) tapılmadı!");
 }
 
-function writeJson(file, data) {
-  fs.writeFileSync(file, JSON.stringify(data, null, 2), 'utf8');
-}
-
-function nextId(rows) {
-  return rows.reduce((max, r) => Math.max(max, r.id), 0) + 1;
-}
-
-function nowIso() {
-  return new Date().toISOString().slice(0, 19).replace('T', ' ');
-}
+const sql = neon(process.env.DATABASE_URL);
 
 // ---------------- USERS ----------------
-function userExists(username, email) {
-  const users = readJson(usersFile);
-  const uLower = username.toLowerCase();
-  const eLower = email.toLowerCase();
-  return users.some(u => u.username.toLowerCase() === uLower || u.email.toLowerCase() === eLower);
+
+async function userExists(username, email) {
+  const rows = await sql`
+    SELECT id FROM users 
+    WHERE LOWER(username) = LOWER(${username}) OR LOWER(email) = LOWER(${email}) 
+    LIMIT 1
+  `;
+  return rows.length > 0;
 }
 
-function findUserByUsernameOrEmail(identifier) {
-  const users = readJson(usersFile);
-  const idLower = identifier.toLowerCase();
-  return users.find(u => u.username.toLowerCase() === idLower || u.email.toLowerCase() === idLower) || null;
+async function findUserByUsernameOrEmail(identifier) {
+  const rows = await sql`
+    SELECT * FROM users 
+    WHERE LOWER(username) = LOWER(${identifier}) OR LOWER(email) = LOWER(${identifier}) 
+    LIMIT 1
+  `;
+  return rows[0] || null;
 }
 
-function findUserById(id) {
-  const users = readJson(usersFile);
-  return users.find(u => u.id === Number(id)) || null;
+async function findUserById(id) {
+  const rows = await sql`
+    SELECT * FROM users 
+    WHERE id = ${Number(id)} 
+    LIMIT 1
+  `;
+  return rows[0] || null;
 }
 
-function createUser({ username, email, password_hash, avatar_color }) {
-  const users = readJson(usersFile);
-  const user = {
-    id: nextId(users),
-    username,
-    email,
-    password_hash,
-    avatar_color,
-    created_at: nowIso()
-  };
-  users.push(user);
-  writeJson(usersFile, users);
-  return user;
+async function createUser({ username, email, password_hash, avatar_color }) {
+  const rows = await sql`
+    INSERT INTO users (username, email, password_hash, avatar_color)
+    VALUES (${username}, ${email}, ${password_hash}, ${avatar_color})
+    RETURNING *
+  `;
+  return rows[0];
 }
 
 // ---------------- BOOKS ----------------
-function listBooks({ q, category } = {}) {
-  const books = readJson(booksFile);
-  const users = readJson(usersFile);
-  const userMap = new Map(users.map(u => [u.id, u.username]));
 
-  let rows = books.map(b => ({ ...b, uploader: userMap.get(b.uploaded_by) || 'naməlum' }));
+async function listBooks({ q, category } = {}) {
+  // Sol tərəfdən JOIN edərək yükləyən istifadəçinin username-ni birbaşa gətiririk
+  let query = sql`
+    SELECT b.*, COALESCE(u.username, 'naməlum') AS uploader
+    FROM books b
+    LEFT JOIN users u ON b.uploaded_by = u.id
+    WHERE 1=1
+  `;
 
-  if (q) {
-    const qLower = q.toLowerCase();
-    rows = rows.filter(b => b.title.toLowerCase().includes(qLower) || b.author.toLowerCase().includes(qLower));
+  // Dinamik SQL-i drayverin təhlükəsizliyinə xələl gətirmədən idarə edirik:
+  if (q && category && category !== 'Hamısı') {
+    query = sql`
+      SELECT b.*, COALESCE(u.username, 'naməlum') AS uploader
+      FROM books b
+      LEFT JOIN users u ON b.uploaded_by = u.id
+      WHERE (LOWER(b.title) LIKE ${'%' + q.toLowerCase() + '%'} 
+         OR LOWER(b.author) LIKE ${'%' + q.toLowerCase() + '%'})
+        AND b.category = ${category}
+      ORDER BY b.created_at DESC
+    `;
+  } else if (q) {
+    query = sql`
+      SELECT b.*, COALESCE(u.username, 'naməlum') AS uploader
+      FROM books b
+      LEFT JOIN users u ON b.uploaded_by = u.id
+      WHERE LOWER(b.title) LIKE ${'%' + q.toLowerCase() + '%'} 
+         OR LOWER(b.author) LIKE ${'%' + q.toLowerCase() + '%'}
+      ORDER BY b.created_at DESC
+    `;
+  } else if (category && category !== 'Hamısı') {
+    query = sql`
+      SELECT b.*, COALESCE(u.username, 'naməlum') AS uploader
+      FROM books b
+      LEFT JOIN users u ON b.uploaded_by = u.id
+      WHERE b.category = ${category}
+      ORDER BY b.created_at DESC
+    `;
+  } else {
+    query = sql`
+      SELECT b.*, COALESCE(u.username, 'naməlum') AS uploader
+      FROM books b
+      LEFT JOIN users u ON b.uploaded_by = u.id
+      ORDER BY b.created_at DESC
+    `;
   }
-  if (category && category !== 'Hamısı') {
-    rows = rows.filter(b => b.category === category);
-  }
-  rows.sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0));
-  return rows;
+
+  return await query;
 }
 
-function findBookById(id) {
-  const books = readJson(booksFile);
-  return books.find(b => b.id === Number(id)) || null;
+async function findBookById(id) {
+  const rows = await sql`
+    SELECT * FROM books 
+    WHERE id = ${Number(id)} 
+    LIMIT 1
+  `;
+  return rows[0] || null;
 }
 
-function createBook(data) {
-  const books = readJson(booksFile);
-  const book = {
-    id: nextId(books),
-    title: data.title,
-    author: data.author,
-    description: data.description || '',
-    category: data.category || 'Digər',
-    filename: data.filename,
-    original_name: data.original_name,
-    filesize: data.filesize,
-    cover_hue: data.cover_hue,
-    uploaded_by: data.uploaded_by,
-    downloads: 0,
-    created_at: nowIso()
+async function createBook(data) {
+  const rows = await sql`
+    INSERT INTO books (
+      title, author, description, category, filename, 
+      original_name, filesize, cover_hue, uploaded_by
+    )
+    VALUES (
+      ${data.title}, 
+      ${data.author}, 
+      ${data.description || ''}, 
+      ${data.category || 'Digər'}, 
+      ${data.filename}, 
+      ${data.original_name}, 
+      ${Number(data.filesize)}, 
+      ${data.cover_hue}, 
+      ${data.uploaded_by ? Number(data.uploaded_by) : null}
+    )
+    RETURNING *
+  `;
+  return rows[0];
+}
+
+async function deleteBook(id) {
+  const result = await sql`
+    DELETE FROM books 
+    WHERE id = ${Number(id)}
+    RETURNING id
+  `;
+  return result.length > 0;
+}
+
+async function incrementDownloads(id) {
+  await sql`
+    UPDATE books 
+    SET downloads = COALESCE(downloads, 0) + 1 
+    WHERE id = ${Number(id)}
+  `;
+}
+
+async function getStats() {
+  const [booksCount, usersCount, downloadsSum] = await Promise.all([
+    sql`SELECT COUNT(*)::int AS count FROM books`,
+    sql`SELECT COUNT(*)::int AS count FROM users`,
+    sql`SELECT COALESCE(SUM(downloads), 0)::int AS sum FROM books`
+  ]);
+
+  return {
+    totalBooks: booksCount[0].count,
+    totalUsers: usersCount[0].count,
+    totalDownloads: downloadsSum[0].sum
   };
-  books.push(book);
-  writeJson(booksFile, books);
-  return book;
-}
-
-function deleteBook(id) {
-  const books = readJson(booksFile);
-  const idx = books.findIndex(b => b.id === Number(id));
-  if (idx === -1) return false;
-  books.splice(idx, 1);
-  writeJson(booksFile, books);
-  return true;
-}
-
-function incrementDownloads(id) {
-  const books = readJson(booksFile);
-  const book = books.find(b => b.id === Number(id));
-  if (book) {
-    book.downloads = (book.downloads || 0) + 1;
-    writeJson(booksFile, books);
-  }
-}
-
-function getStats() {
-  const books = readJson(booksFile);
-  const users = readJson(usersFile);
-  const totalDownloads = books.reduce((sum, b) => sum + (b.downloads || 0), 0);
-  return { totalBooks: books.length, totalUsers: users.length, totalDownloads };
 }
 
 module.exports = {
