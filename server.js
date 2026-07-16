@@ -1,38 +1,42 @@
 const path = require('path');
-const fs = require('fs');
 const crypto = require('crypto');
 const express = require('express');
 const session = require('express-session');
+const PgSession = require('connect-pg-simple')(session);
 const bcrypt = require('bcryptjs');
 const multer = require('multer');
+const { put, del } = require('@vercel/blob'); // Vercel Blob funksiyaları
 const db = require('./db');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const UPLOAD_DIR = path.join(__dirname, 'uploads');
-if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.set('trust proxy', 1);
+
 app.use(session({
-  secret: 'kitabxana-gizli-acar-' + crypto.randomBytes(8).toString('hex'),
+  store: new PgSession({
+    conString: process.env.DATABASE_URL,
+    tableName: 'session'
+  }),
+  secret: process.env.SESSION_SECRET || 'kitabxana-gizli-acar-' + crypto.randomBytes(16).toString('hex'),
   resave: false,
   saveUninitialized: false,
-  cookie: { maxAge: 1000 * 60 * 60 * 24 * 7 } // 7 gün
+  cookie: { 
+    maxAge: 1000 * 60 * 60 * 24 * 7,
+    secure: true,
+    sameSite: 'none' 
+  }
 }));
+
 app.use(express.static(path.join(__dirname, 'public')));
 
-// ---------- Multer (PDF yükləmə) ----------
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, UPLOAD_DIR),
-  filename: (req, file, cb) => {
-    const unique = Date.now() + '-' + crypto.randomBytes(6).toString('hex');
-    cb(null, unique + '.pdf');
-  }
-});
+// ---------- Multer (RAM-da müvəqqəti saxlamaq üçün) ----------
+const storage = multer.memoryStorage(); // Faylı diskə yazmırıq, RAM-da saxlayırıq
 const upload = multer({
   storage,
-  limits: { fileSize: 80 * 1024 * 1024 }, // 80MB
+  limits: { fileSize: 4.5 * 1024 * 1024 }, // Vercel Blob pulsuz paket limiti: 4.5MB
   fileFilter: (req, file, cb) => {
     if (file.mimetype === 'application/pdf' || file.originalname.toLowerCase().endsWith('.pdf')) {
       cb(null, true);
@@ -55,7 +59,7 @@ function publicUser(row) {
 const AVATAR_COLORS = ['#C9A227', '#A83232', '#3C6E71', '#7A5C9E', '#B5651D', '#2F6F4E'];
 
 // ---------- AUTH API ----------
-app.post('/api/register', (req, res) => {
+app.post('/api/register', async (req, res) => {
   try {
     const { username, email, password } = req.body;
     if (!username || !email || !password) {
@@ -69,12 +73,17 @@ app.post('/api/register', (req, res) => {
     }
     const uname = username.trim();
     const email2 = email.trim().toLowerCase();
-    if (db.userExists(uname, email2)) {
+
+    const exists = await db.userExists(uname, email2);
+    if (exists) {
       return res.status(409).json({ error: 'Bu istifadəçi adı və ya email artıq istifadə olunub' });
     }
-    const hash = bcrypt.hashSync(password, 10);
+
+    const hash = await bcrypt.hash(password, 10);
     const color = AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)];
-    const user = db.createUser({ username: uname, email: email2, password_hash: hash, avatar_color: color });
+    
+    const user = await db.createUser({ username: uname, email: email2, password_hash: hash, avatar_color: color });
+    
     req.session.userId = user.id;
     res.json({ user: publicUser(user) });
   } catch (e) {
@@ -83,14 +92,21 @@ app.post('/api/register', (req, res) => {
   }
 });
 
-app.post('/api/login', (req, res) => {
+app.post('/api/login', async (req, res) => {
   try {
     const { identifier, password } = req.body;
     if (!identifier || !password) return res.status(400).json({ error: 'Bütün xanaları doldurun' });
-    const user = db.findUserByUsernameOrEmail(identifier.trim());
-    if (!user || !bcrypt.compareSync(password, user.password_hash)) {
+    
+    const user = await db.findUserByUsernameOrEmail(identifier.trim());
+    if (!user) {
       return res.status(401).json({ error: 'İstifadəçi adı/email və ya şifrə yanlışdır' });
     }
+
+    const isMatch = await bcrypt.compare(password, user.password_hash);
+    if (!isMatch) {
+      return res.status(401).json({ error: 'İstifadəçi adı/email və ya şifrə yanlışdır' });
+    }
+
     req.session.userId = user.id;
     res.json({ user: publicUser(user) });
   } catch (e) {
@@ -103,48 +119,70 @@ app.post('/api/logout', (req, res) => {
   req.session.destroy(() => res.json({ ok: true }));
 });
 
-app.get('/api/me', (req, res) => {
+app.get('/api/me', async (req, res) => {
   if (!req.session.userId) return res.json({ user: null });
-  const user = db.findUserById(req.session.userId);
-  if (!user) return res.json({ user: null });
-  res.json({ user: publicUser(user) });
+  try {
+    const user = await db.findUserById(req.session.userId);
+    if (!user) return res.json({ user: null });
+    res.json({ user: publicUser(user) });
+  } catch (e) {
+    console.error(e);
+    res.json({ user: null });
+  }
 });
 
 // ---------- BOOKS API ----------
-app.get('/api/books', requireAuth, (req, res) => {
-  const q = (req.query.q || '').trim();
-  const category = (req.query.category || '').trim();
-  const rows = db.listBooks({ q, category });
-  res.json({
-    books: rows.map(r => ({
-      id: r.id, title: r.title, author: r.author, description: r.description,
-      category: r.category, filesize: r.filesize, coverHue: r.cover_hue,
-      uploader: r.uploader, uploadedBy: r.uploaded_by, downloads: r.downloads,
-      createdAt: r.created_at
-    }))
-  });
+app.get('/api/books', requireAuth, async (req, res) => {
+  try {
+    const q = (req.query.q || '').trim();
+    const category = (req.query.category || '').trim();
+    
+    const rows = await db.listBooks({ q, category });
+    
+    res.json({
+      books: rows.map(r => ({
+        id: r.id, title: r.title, author: r.author, description: r.description,
+        category: r.category, filesize: r.filesize, coverHue: r.cover_hue,
+        uploader: r.uploader, uploadedBy: r.uploaded_by, downloads: r.downloads,
+        createdAt: r.created_at
+      }))
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Kitablar gətirilərkən xəta baş verdi' });
+  }
 });
 
-app.post('/api/books', requireAuth, upload.single('pdf'), (req, res) => {
+// Vercel Blob-a yükləmə hissəsi
+app.post('/api/books', requireAuth, upload.single('pdf'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'PDF faylı seçilməyib' });
     const { title, author, description, category } = req.body;
     if (!title || !author) {
-      fs.unlinkSync(req.file.path);
       return res.status(400).json({ error: 'Kitabın adı və müəllif tələb olunur' });
     }
+
+    // Faylı Vercel Blob-a yükləyirik
+    const uniqueName = Date.now() + '-' + crypto.randomBytes(6).toString('hex') + '.pdf';
+    const blob = await put(uniqueName, req.file.buffer, {
+      access: 'public', // Hər kəsin oxuya bilməsi üçün public edirik
+    });
+
     const hue = Math.floor(Math.random() * 360);
-    const book = db.createBook({
+    
+    // db-də "filename" olaraq Blob-un verdiyi URL-i saxlayırıq!
+    const book = await db.createBook({
       title: title.trim(),
       author: author.trim(),
       description: (description || '').trim(),
       category: category || 'Digər',
-      filename: req.file.filename,
+      filename: blob.url, // İndi bu sahədə "/uploads/fayl.pdf" yox, "https://xxxx.public.blob.vercel-storage.com/fayl.pdf" yazılır
       original_name: req.file.originalname,
       filesize: req.file.size,
       cover_hue: hue,
       uploaded_by: req.session.userId
     });
+    
     res.json({ id: book.id });
   } catch (e) {
     console.error(e);
@@ -152,40 +190,64 @@ app.post('/api/books', requireAuth, upload.single('pdf'), (req, res) => {
   }
 });
 
-app.get('/api/books/:id/download', requireAuth, (req, res) => {
-  const book = db.findBookById(req.params.id);
-  if (!book) return res.status(404).json({ error: 'Kitab tapılmadı' });
-  const filePath = path.join(UPLOAD_DIR, book.filename);
-  if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Fayl serverdə tapılmadı' });
-  db.incrementDownloads(book.id);
-  res.download(filePath, book.original_name.endsWith('.pdf') ? book.original_name : book.original_name + '.pdf');
-});
-
-app.get('/api/books/:id/view', requireAuth, (req, res) => {
-  const book = db.findBookById(req.params.id);
-  if (!book) return res.status(404).json({ error: 'Kitab tapılmadı' });
-  const filePath = path.join(UPLOAD_DIR, book.filename);
-  if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Fayl serverdə tapılmadı' });
-  res.setHeader('Content-Type', 'application/pdf');
-  res.setHeader('Content-Disposition', 'inline; filename="' + book.original_name.replace(/"/g, '') + '"');
-  fs.createReadStream(filePath).pipe(res);
-});
-
-app.delete('/api/books/:id', requireAuth, (req, res) => {
-  const book = db.findBookById(req.params.id);
-  if (!book) return res.status(404).json({ error: 'Kitab tapılmadı' });
-  if (book.uploaded_by !== req.session.userId) {
-    return res.status(403).json({ error: 'Yalnız öz yüklədiyiniz kitabı silə bilərsiniz' });
+// Kitabı yükləmək üçün redirect (yönləndirmə) edirik
+app.get('/api/books/:id/download', requireAuth, async (req, res) => {
+  try {
+    const book = await db.findBookById(req.params.id);
+    if (!book) return res.status(404).json({ error: 'Kitab tapılmadı' });
+    
+    await db.incrementDownloads(book.id);
+    
+    // Fayl birbaşa buludda olduğu üçün istifadəçini həmin linkə yönləndiririk
+    res.redirect(book.filename);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Yükləmə zamanı xəta baş verdi' });
   }
-  const filePath = path.join(UPLOAD_DIR, book.filename);
-  if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-  db.deleteBook(book.id);
-  res.json({ ok: true });
 });
 
-app.get('/api/stats', (req, res) => {
-  // Bu endpoint login tələb etmir ki, giriş səhifəsində ümumi statistika göstərilə bilsin
-  res.json(db.getStats());
+// Kitaba onlayn baxış üçün də birbaşa Blob linkinə yönləndiririk
+app.get('/api/books/:id/view', requireAuth, async (req, res) => {
+  try {
+    const book = await db.findBookById(req.params.id);
+    if (!book) return res.status(404).json({ error: 'Kitab tapılmadı' });
+    
+    res.redirect(book.filename);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Fayl oxunarkən xəta baş verdi' });
+  }
+});
+
+// Kitabı siləndə həm db-dən silirik, həm də Vercel Blob-dan silirik!
+app.delete('/api/books/:id', requireAuth, async (req, res) => {
+  try {
+    const book = await db.findBookById(req.params.id);
+    if (!book) return res.status(404).json({ error: 'Kitab tapılmadı' });
+    if (book.uploaded_by !== req.session.userId) {
+      return res.status(403).json({ error: 'Yalnız öz yüklədiyiniz kitabı silə bilərsiniz' });
+    }
+    
+    // Vercel Blob-dan faylı silirik
+    await del(book.filename);
+    
+    // Verilənlər bazasından silirik
+    await db.deleteBook(book.id);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Silinmə zamanı xəta baş verdi' });
+  }
+});
+
+app.get('/api/stats', async (req, res) => {
+  try {
+    const stats = await db.getStats();
+    res.json(stats);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ totalBooks: 0, totalUsers: 0, totalDownloads: 0 });
+  }
 });
 
 // ---------- Səhifələr ----------
@@ -199,5 +261,5 @@ app.get('*', (req, res, next) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`\n📚 Kitabxana sayti isə düşdü: http://localhost:${PORT}\n`);
+  console.log(`\n📚 Kitabxana saytı işə düşdü: http://localhost:${PORT}\n`);
 });
