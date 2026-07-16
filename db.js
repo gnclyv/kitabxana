@@ -3,7 +3,6 @@
 
 const { neon } = require('@neondatabase/serverless');
 
-// Vercel-də və ya lokalda DATABASE_URL-in mövcudluğunu yoxlayırıq
 if (!process.env.DATABASE_URL) {
   throw new Error("DATABASE_URL mühit dəyişəni (environment variable) tapılmadı!");
 }
@@ -51,7 +50,6 @@ async function createUser({ username, email, password_hash, avatar_color }) {
 // ---------------- BOOKS ----------------
 
 async function listBooks({ q, category } = {}) {
-  // Sol tərəfdən JOIN edərək yükləyən istifadəçinin username-ni birbaşa gətiririk
   let query = sql`
     SELECT b.*, COALESCE(u.username, 'naməlum') AS uploader
     FROM books b
@@ -59,7 +57,6 @@ async function listBooks({ q, category } = {}) {
     WHERE 1=1
   `;
 
-  // Dinamik SQL-i drayverin təhlükəsizliyinə xələl gətirmədən idarə edirik:
   if (q && category && category !== 'Hamısı') {
     query = sql`
       SELECT b.*, COALESCE(u.username, 'naməlum') AS uploader
@@ -109,6 +106,9 @@ async function findBookById(id) {
 }
 
 async function createBook(data) {
+  // cover_hue dəyərini zəmanətə almaq üçün stringə çeviririk (Postgres varchar xətası verməsin deyə)
+  const hueString = data.cover_hue !== undefined ? data.cover_hue.toString() : '180';
+
   const rows = await sql`
     INSERT INTO books (
       title, author, description, category, filename, 
@@ -122,7 +122,7 @@ async function createBook(data) {
       ${data.filename}, 
       ${data.original_name}, 
       ${Number(data.filesize)}, 
-      ${data.cover_hue}, 
+      ${hueString}, 
       ${data.uploaded_by ? Number(data.uploaded_by) : null}
     )
     RETURNING *
