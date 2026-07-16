@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",
+    "@supabase/supabase-js": "^2.110.7",
     "@vercel/blob": "^2.6.1",
     "bcryptjs": "^2.4.3",
     "connect-pg-simple": "^10.0.0",

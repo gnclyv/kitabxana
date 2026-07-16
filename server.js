@@ -5,11 +5,17 @@ const session = require('express-session');
 const PgSession = require('connect-pg-simple')(session);
 const bcrypt = require('bcryptjs');
 const multer = require('multer');
-const { put, del } = require('@vercel/blob'); // Vercel Blob funksiyaları
+const { createClient } = require('@supabase/supabase-js'); // Supabase əlavə olundu
 const db = require('./db');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Supabase Storage müştərisi
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+);
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -33,10 +39,10 @@ app.use(session({
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ---------- Multer (RAM-da müvəqqəti saxlamaq üçün) ----------
-const storage = multer.memoryStorage(); // Faylı diskə yazmırıq, RAM-da saxlayırıq
+const storage = multer.memoryStorage();
 const upload = multer({
   storage,
-  limits: { fileSize: 4.5 * 1024 * 1024 }, // Vercel Blob pulsuz paket limiti: 4.5MB
+  limits: { fileSize: 50 * 1024 * 1024 }, // Limit artıq 50 MB-dır!
   fileFilter: (req, file, cb) => {
     if (file.mimetype === 'application/pdf' || file.originalname.toLowerCase().endsWith('.pdf')) {
       cb(null, true);
@@ -153,7 +159,7 @@ app.get('/api/books', requireAuth, async (req, res) => {
   }
 });
 
-// Vercel Blob-a yükləmə hissəsi
+// Supabase Storage-ə yükləmə hissəsi
 app.post('/api/books', requireAuth, upload.single('pdf'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'PDF faylı seçilməyib' });
@@ -162,21 +168,36 @@ app.post('/api/books', requireAuth, upload.single('pdf'), async (req, res) => {
       return res.status(400).json({ error: 'Kitabın adı və müəllif tələb olunur' });
     }
 
-    // Faylı Vercel Blob-a yükləyirik
     const uniqueName = Date.now() + '-' + crypto.randomBytes(6).toString('hex') + '.pdf';
-    const blob = await put(uniqueName, req.file.buffer, {
-      access: 'public', // Hər kəsin oxuya bilməsi üçün public edirik
-    });
+    
+    // Supabase Storage-ə faylı göndəririk
+    const { data, error } = await supabase.storage
+      .from('books')
+      .upload(uniqueName, req.file.buffer, {
+        contentType: 'application/pdf',
+        cacheControl: '3600',
+        upsert: false
+      });
 
+    if (error) {
+      console.error('Supabase Storage Xətası:', error);
+      return res.status(500).json({ error: 'Fayl bulud yaddaşına yüklənə bilmədi' });
+    }
+
+    // Public URL-i götürürük
+    const { data: urlData } = supabase.storage
+      .from('books')
+      .getPublicUrl(uniqueName);
+
+    const publicUrl = urlData.publicUrl;
     const hue = Math.floor(Math.random() * 360);
     
-    // db-də "filename" olaraq Blob-un verdiyi URL-i saxlayırıq!
     const book = await db.createBook({
       title: title.trim(),
       author: author.trim(),
       description: (description || '').trim(),
       category: category || 'Digər',
-      filename: blob.url, // İndi bu sahədə "/uploads/fayl.pdf" yox, "https://xxxx.public.blob.vercel-storage.com/fayl.pdf" yazılır
+      filename: publicUrl, // Bazada birbaşa Supabase linki qalacaq
       original_name: req.file.originalname,
       filesize: req.file.size,
       cover_hue: hue,
@@ -190,15 +211,12 @@ app.post('/api/books', requireAuth, upload.single('pdf'), async (req, res) => {
   }
 });
 
-// Kitabı yükləmək üçün redirect (yönləndirmə) edirik
 app.get('/api/books/:id/download', requireAuth, async (req, res) => {
   try {
     const book = await db.findBookById(req.params.id);
     if (!book) return res.status(404).json({ error: 'Kitab tapılmadı' });
     
     await db.incrementDownloads(book.id);
-    
-    // Fayl birbaşa buludda olduğu üçün istifadəçini həmin linkə yönləndiririk
     res.redirect(book.filename);
   } catch (e) {
     console.error(e);
@@ -206,7 +224,6 @@ app.get('/api/books/:id/download', requireAuth, async (req, res) => {
   }
 });
 
-// Kitaba onlayn baxış üçün də birbaşa Blob linkinə yönləndiririk
 app.get('/api/books/:id/view', requireAuth, async (req, res) => {
   try {
     const book = await db.findBookById(req.params.id);
@@ -219,7 +236,6 @@ app.get('/api/books/:id/view', requireAuth, async (req, res) => {
   }
 });
 
-// Kitabı siləndə həm db-dən silirik, həm də Vercel Blob-dan silirik!
 app.delete('/api/books/:id', requireAuth, async (req, res) => {
   try {
     const book = await db.findBookById(req.params.id);
@@ -228,10 +244,13 @@ app.delete('/api/books/:id', requireAuth, async (req, res) => {
       return res.status(403).json({ error: 'Yalnız öz yüklədiyiniz kitabı silə bilərsiniz' });
     }
     
-    // Vercel Blob-dan faylı silirik
-    await del(book.filename);
+    // URL-dən faylın adını çıxarırıq
+    const fileUrlParts = book.filename.split('/');
+    const fileName = fileUrlParts[fileUrlParts.length - 1];
+
+    // Supabase-dən faylı silirik
+    await supabase.storage.from('books').remove([fileName]);
     
-    // Verilənlər bazasından silirik
     await db.deleteBook(book.id);
     res.json({ ok: true });
   } catch (e) {
