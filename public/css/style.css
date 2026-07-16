@@ -28,6 +28,7 @@ body {
   min-height: 100vh;
   position: relative;
   overflow-x: hidden;
+  -webkit-text-size-adjust: 100%; /* Mobil cihazlarda mətnin ölçüsünün özbaşına böyüməsinin qarşısını alır */
 }
 
 body::before {
@@ -71,6 +72,7 @@ button { font-family: inherit; cursor: pointer; }
   padding: 18px 42px;
   background: rgba(18, 16, 14, 0.75);
   backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
   border-bottom: 1px solid var(--line);
 }
 .brand { display: flex; align-items: center; gap: 12px; font-family: var(--serif); font-size: 22px; font-weight: 600; letter-spacing: 0.3px; }
@@ -90,6 +92,7 @@ button { font-family: inherit; cursor: pointer; }
   font-weight: 600; font-size: 14.5px; letter-spacing: 0.2px;
   transition: transform .25s cubic-bezier(.2,.8,.2,1), box-shadow .25s ease, background .25s ease;
   display: inline-flex; align-items: center; gap: 8px;
+  justify-content: center;
 }
 .btn-primary {
   background: linear-gradient(135deg, var(--gold-bright), var(--gold));
@@ -122,6 +125,7 @@ button { font-family: inherit; cursor: pointer; }
   width: 100%; padding: 12px 14px; border-radius: 9px;
   background: rgba(0,0,0,0.25); border: 1px solid var(--line); color: var(--cream);
   font-family: var(--sans); font-size: 14.5px; transition: border-color .2s, box-shadow .2s;
+  box-sizing: border-box;
 }
 .field input:focus, .field textarea:focus, .field select:focus {
   outline: none; border-color: var(--gold); box-shadow: 0 0 0 3px rgba(201,162,39,0.15);
@@ -158,3 +162,36 @@ button { font-family: inherit; cursor: pointer; }
 ::-webkit-scrollbar-thumb:hover { background: var(--gold); }
 
 .container { max-width: 1180px; margin: 0 auto; padding: 0 32px; position: relative; z-index: 1; }
+
+/* ==========================================
+   GLOBAL RESPONSIVE BREAKPOINTS (CSS)
+   ========================================== */
+@media (max-width: 768px) {
+  .nav {
+    padding: 14px 20px;
+  }
+  .container {
+    padding: 0 16px;
+  }
+}
+
+@media (max-width: 480px) {
+  .nav {
+    padding: 12px 14px;
+  }
+  .container {
+    padding: 0 12px;
+  }
+  .btn {
+    padding: 10px 16px;
+    font-size: 13.5px;
+  }
+  .toast-wrap {
+    top: 10px;
+    right: 10px;
+    left: 10px; /* Telefonda bildiriş ekranı tam ortalasın deyə */
+  }
+  .toast {
+    max-width: 100%;
+  }
+}

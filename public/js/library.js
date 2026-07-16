@@ -1,243 +1,284 @@
 let currentUser = null;
-let allBooks = [];
-let selectedFile = null;
-let selectedCoverFile = null; // Üz qabığı şəkli üçün dəyişən
-let searchDebounce = null;
 
-const CATEGORY_ICONS = {
-  'Bədii ədəbiyyat': '✎', 'Elmi': '🜸', 'Tarix': '⌛', 'Psixologiya': '❊',
-  'Biznes': '◆', 'Uşaq ədəbiyyatı': '✺', 'Digər': '❋'
-};
+// Səhifə yüklənəndə işə düşən təməl funksiyalar
+document.addEventListener('DOMContentLoaded', () => {
+  checkUser();
+  fetchBooks();
+  setupDragAndDrop();
+  setupUploadForm();
 
-function fmtSize(bytes) {
-  if (!bytes) return '0 KB';
-  if (bytes < 1024 * 1024) return Math.round(bytes / 1024) + ' KB';
-  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
-}
-
-function initials(name) {
-  return (name || '?').trim().charAt(0).toUpperCase();
-}
-
-async function init() {
-  const meRes = await fetch('/api/me');
-  const meJson = await meRes.json();
-  if (!meJson.user) { window.location.href = '/'; return; }
-  currentUser = meJson.user;
-  document.getElementById('avatar').textContent = initials(currentUser.username);
-  document.getElementById('avatar').style.background = currentUser.avatarColor;
-  document.getElementById('usernameLabel').textContent = currentUser.username;
-  document.getElementById('greetName').textContent = currentUser.username;
-  await loadBooks();
-}
-
-async function loadBooks() {
-  const q = document.getElementById('searchInput').value.trim();
-  const category = document.getElementById('categorySelect').value;
-  const params = new URLSearchParams();
-  if (q) params.set('q', q);
-  if (category && category !== 'Hamısı') params.set('category', category);
-  const res = await fetch('/api/books?' + params.toString());
-  if (!res.ok) return;
-  const json = await res.json();
-  allBooks = json.books;
-  render();
-}
-
-function render() {
-  const grid = document.getElementById('bookGrid');
-  const skeleton = document.getElementById('skeletonGrid');
-  const empty = document.getElementById('emptyState');
-  skeleton.style.display = 'none';
-
-  if (allBooks.length === 0) {
-    grid.style.display = 'none';
-    empty.style.display = 'block';
-    return;
-  }
-  empty.style.display = 'none';
-  grid.style.display = 'grid';
-  grid.innerHTML = allBooks.map((b, i) => {
-    const hue = b.coverHue || Math.floor(Math.random() * 360);
-    const isMine = b.uploadedBy === currentUser.id;
-    const icon = CATEGORY_ICONS[b.category] || '❋';
-    
-    // Əgər kitabın şəkli (cover_image) varsa şəkli göstər, yoxdursa standart rəngli fonu göstər
-    const coverContent = b.cover_image 
-      ? `<img src="${b.cover_image}" alt="${escapeHtml(b.title)}" class="book-cover-img">`
-      : `<span class="glyph">${escapeHtml(initials(b.title))}</span>`;
-
-    const coverStyle = b.cover_image 
-      ? '' 
-      : `style="background: linear-gradient(150deg, hsl(${hue},48%,30%), hsl(${(hue+40)%360},55%,18%));"`;
-
-    return `
-    <div class="book-card" style="animation-delay:${Math.min(i * 0.05, 0.6)}s">
-      <div class="cover" ${coverStyle}>
-        ${coverContent}
-        <span class="cat-tag">${icon} ${escapeHtml(b.category)}</span>
-      </div>
-      <div class="card-body">
-        <h3>${escapeHtml(b.title)}</h3>
-        <div class="author">${escapeHtml(b.author)}</div>
-        <div class="desc">${escapeHtml(b.description || 'Təsvir əlavə edilməyib.')}</div>
-        <div class="card-actions">
-          <a href="/api/books/${b.id}/view" target="_blank" class="icon-btn">👁 Oxu</a>
-          <a href="/api/books/${b.id}/download" class="icon-btn">⬇ Endir</a>
-          ${isMine ? `<button class="icon-btn del" onclick="deleteBook(${b.id})" title="Sil">🗑</button>` : ''}
-        </div>
-      </div>
-      <div class="meta-row">
-        <span>${escapeHtml(b.uploader)}</span>
-        <span>${fmtSize(b.filesize)} · ${b.downloads} endirmə</span>
-      </div>
-    </div>`;
-  }).join('');
-}
-
-function escapeHtml(str) {
-  if (!str) return '';
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
-}
-
-async function deleteBook(id) {
-  if (!confirm('Bu kitabı silmək istədiyinizə əminsiniz?')) return;
-  const res = await fetch('/api/books/' + id, { method: 'DELETE' });
-  const json = await res.json();
-  if (!res.ok) { showToast(json.error, 'error'); return; }
-  showToast('Kitab silindi', 'success');
-  loadBooks();
-}
-
-document.getElementById('searchInput').addEventListener('input', () => {
-  clearTimeout(searchDebounce);
-  searchDebounce = setTimeout(loadBooks, 300);
+  // Axtarış və Kateqoriya filtrlərini dinləmək
+  document.getElementById('searchInput').addEventListener('input', debounce(fetchBooks, 300));
+  document.getElementById('categorySelect').addEventListener('change', fetchBooks);
 });
-document.getElementById('categorySelect').addEventListener('change', loadBooks);
 
+// Debounce funksiyası (Axtarış zamanı serveri yükləməmək üçün gecikdirici)
+function debounce(func, delay) {
+  let timer;
+  return function (...args) {
+    clearTimeout(timer);
+    timer = setTimeout(() => func.apply(this, args), delay);
+  };
+}
+
+// 1. İstifadəçi məlumatlarını yoxlamaq və menyunu tənzimləmək
+async function checkUser() {
+  try {
+    const res = await fetch('/api/me');
+    const data = await res.json();
+    if (data.user) {
+      currentUser = data.user;
+      document.getElementById('greetName').textContent = currentUser.username;
+      document.getElementById('usernameLabel').textContent = currentUser.username;
+      
+      const avatar = document.getElementById('avatar');
+      avatar.textContent = currentUser.username.charAt(0).toUpperCase();
+      avatar.style.background = currentUser.avatarColor || '#c9a227';
+    } else {
+      window.location.href = '/login.html'; // Giriş edilməyibsə login səhifəsinə yönləndir
+    }
+  } catch (err) {
+    console.error('İstifadəçi yoxlanılarkən xəta:', err);
+  }
+}
+
+// İstifadəçi menyusunu açıb-bağlamaq
 function toggleUserMenu() {
-  document.getElementById('userDropdown').classList.toggle('open');
+  const dropdown = document.getElementById('userDropdown');
+  dropdown.classList.toggle('open');
 }
-document.addEventListener('click', (e) => {
-  if (!document.getElementById('userChip').contains(e.target)) {
-    document.getElementById('userDropdown').classList.remove('open');
-  }
-});
 
+// Çıxış etmək
 async function logout() {
-  await fetch('/api/logout', { method: 'POST' });
-  window.location.href = '/';
+  const res = await fetch('/api/logout', { method: 'POST' });
+  if (res.ok) {
+    window.location.href = '/login.html';
+  }
 }
 
-// ---- Modal Funksiyaları ----
-function openModal() { document.getElementById('modalOverlay').classList.add('open'); }
+// 2. Kitabları Serverdən Yükləmək və Ekrana Düzmək (Dinamik və Responsive)
+async function fetchBooks() {
+  const skeleton = document.getElementById('skeletonGrid');
+  const grid = document.getElementById('bookGrid');
+  const emptyState = document.getElementById('emptyState');
+  
+  const searchVal = document.getElementById('searchInput').value;
+  const categoryVal = document.getElementById('categorySelect').value;
+
+  // Yüklənir (Skeleton göstər)
+  skeleton.style.display = 'grid';
+  grid.style.display = 'none';
+  emptyState.style.display = 'none';
+
+  try {
+    let url = `/api/books?q=${encodeURIComponent(searchVal)}`;
+    if (categoryVal !== 'Hamısı') {
+      url += `&category=${encodeURIComponent(categoryVal)}`;
+    }
+
+    const res = await fetch(url);
+    const data = await res.json();
+    const books = data.books || [];
+
+    grid.innerHTML = '';
+    skeleton.style.display = 'none';
+
+    if (books.length === 0) {
+      emptyState.style.display = 'block';
+      grid.style.display = 'none';
+      return;
+    }
+
+    emptyState.style.display = 'none';
+    grid.style.display = 'grid';
+
+    books.forEach((book, index) => {
+      // Əgər kitabın üz qabığı yoxdursa, default rəngli fon göstəririk
+      const coverHtml = book.cover_image 
+        ? `<img src="${book.cover_image}" class="book-cover-img" alt="${book.title}">`
+        : `<div class="glyph">${book.title.charAt(0)}</div>`;
+
+      // Kitabı silmək düyməsi (Yalnız yükləyən şəxsə göstərilir)
+      const deleteBtn = currentUser && book.uploaded_by === currentUser.id
+        ? `<button class="icon-btn del" onclick="deleteBook('${book.id}')" title="Sil">🗑️</button>`
+        : '';
+
+      const sizeKB = (book.filesize / 1024).toFixed(0);
+
+      const card = document.createElement('div');
+      card.className = 'book-card';
+      card.style.animationDelay = `${index * 0.05}s`; // Slayd animasiyası üçün gecikmə
+
+      card.innerHTML = `
+        <div class="cover">
+          <span class="cat-tag">${book.category}</span>
+          ${coverHtml}
+        </div>
+        <div class="card-body">
+          <div>
+            <h3>${book.title}</h3>
+            <div class="author">${book.author}</div>
+            ${book.description ? `<p class="desc">${book.description}</p>` : ''}
+          </div>
+          <div class="card-actions">
+            <a href="/api/books/${book.id}/view" target="_blank" class="icon-btn">👁️ Oxu</a>
+            <a href="/api/books/${book.id}/download" class="icon-btn">⬇️ Endir</a>
+            ${deleteBtn}
+          </div>
+        </div>
+        <div class="meta-row">
+          <span>Ölçü: ${sizeKB} KB</span>
+          <span>Yükləmə: ${book.downloads || 0}</span>
+        </div>
+      `;
+      grid.appendChild(card);
+    });
+
+  } catch (err) {
+    console.error(err);
+    showToast('Kitablar yüklənərkən xəta baş verdi!', 'error');
+  }
+}
+
+// 3. Kitab Yükləmə Paneli (Modal) Kontrolları
+function openModal() {
+  document.getElementById('modalOverlay').classList.add('open');
+}
+
 function closeModal() {
   document.getElementById('modalOverlay').classList.remove('open');
   document.getElementById('uploadForm').reset();
-  selectedFile = null;
-  selectedCoverFile = null;
   document.getElementById('dzFile').textContent = '';
   document.getElementById('dzCoverFile').textContent = '';
-  document.getElementById('progressWrap').classList.remove('show');
-  document.getElementById('progressBar').style.width = '0%';
-}
-document.getElementById('modalOverlay').addEventListener('click', (e) => {
-  if (e.target.id === 'modalOverlay') closeModal();
-});
-
-// PDF Faylı Drag & Drop / Seçmə
-const dropZone = document.getElementById('dropZone');
-const pdfInput = document.getElementById('pdfInput');
-dropZone.addEventListener('click', () => pdfInput.click());
-pdfInput.addEventListener('change', (e) => setFile(e.target.files[0]));
-['dragenter', 'dragover'].forEach(ev => dropZone.addEventListener(ev, (e) => { e.preventDefault(); dropZone.classList.add('drag'); }));
-['dragleave', 'drop'].forEach(ev => dropZone.addEventListener(ev, (e) => { e.preventDefault(); dropZone.classList.remove('drag'); }));
-dropZone.addEventListener('drop', (e) => { if (e.dataTransfer.files[0]) setFile(e.dataTransfer.files[0]); });
-
-function setFile(file) {
-  if (!file) return;
-  if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
-    showToast('Yalnız PDF faylları qəbul olunur', 'error');
-    return;
-  }
-  selectedFile = file;
-  document.getElementById('dzFile').textContent = '✓ ' + file.name + ' (' + fmtSize(file.size) + ')';
-  if (!document.getElementById('titleInput').value) {
-    document.getElementById('titleInput').value = file.name.replace(/\.pdf$/i, '');
-  }
+  document.getElementById('progressWrap').style.display = 'none';
 }
 
-// Üz Qabığı (Şəkil) Drag & Drop / Seçmə
-const coverDropZone = document.getElementById('coverDropZone');
-const coverInput = document.getElementById('coverInput');
-coverDropZone.addEventListener('click', () => coverInput.click());
-coverInput.addEventListener('change', (e) => setCoverFile(e.target.files[0]));
-['dragenter', 'dragover'].forEach(ev => coverDropZone.addEventListener(ev, (e) => { e.preventDefault(); coverDropZone.classList.add('drag'); }));
-['dragleave', 'drop'].forEach(ev => coverDropZone.addEventListener(ev, (e) => { e.preventDefault(); coverDropZone.classList.remove('drag'); }));
-coverDropZone.addEventListener('drop', (e) => { if (e.dataTransfer.files[0]) setCoverFile(e.dataTransfer.files[0]); });
+// Sürüklə-Burax (Drag & Drop) tənzimləmələri
+function setupDragAndDrop() {
+  const setupZone = (zoneId, inputId, labelId) => {
+    const zone = document.getElementById(zoneId);
+    const input = document.getElementById(inputId);
+    const label = document.getElementById(labelId);
 
-function setCoverFile(file) {
-  if (!file) return;
-  if (!file.type.startsWith('image/')) {
-    showToast('Yalnız şəkil faylları (.png, .jpg, .jpeg) qəbul olunur', 'error');
-    return;
-  }
-  selectedCoverFile = file;
-  document.getElementById('dzCoverFile').textContent = '✓ ' + file.name + ' (' + fmtSize(file.size) + ')';
+    zone.addEventListener('click', () => input.click());
+
+    zone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      zone.style.borderColor = 'var(--gold)';
+    });
+
+    zone.addEventListener('dragleave', () => {
+      zone.style.borderColor = 'var(--line)';
+    });
+
+    zone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      zone.style.borderColor = 'var(--line)';
+      if (e.dataTransfer.files.length) {
+        input.files = e.dataTransfer.files;
+        label.textContent = e.dataTransfer.files[0].name;
+      }
+    });
+
+    input.addEventListener('change', () => {
+      if (input.files.length) {
+        label.textContent = input.files[0].name;
+      }
+    });
+  };
+
+  setupZone('dropZone', 'pdfInput', 'dzFile');
+  setupZone('coverDropZone', 'coverInput', 'dzCoverFile');
 }
 
-// Form Submit (Kitab Yükləmə)
-document.getElementById('uploadForm').addEventListener('submit', (e) => {
-  e.preventDefault();
-  if (!selectedFile) { showToast('Zəhmət olmasa PDF faylı seçin', 'error'); return; }
+// 4. Kitab Yüklənməsi Sorğusu (Ajax + Progress Bar)
+function setupUploadForm() {
+  const form = document.getElementById('uploadForm');
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
 
-  const fd = new FormData();
-  fd.append('pdf', selectedFile);
-  if (selectedCoverFile) {
-    fd.append('cover', selectedCoverFile); // Şəkli 'cover' açarı ilə əlavə edirik
-  }
-  fd.append('title', document.getElementById('titleInput').value);
-  fd.append('author', document.getElementById('authorInput').value);
-  fd.append('category', document.getElementById('categoryInput').value);
-  fd.append('description', document.getElementById('descInput').value);
+    const pdfInput = document.getElementById('pdfInput');
+    if (!pdfInput.files || pdfInput.files.length === 0) {
+      showToast('Zəhmət olmasa PDF faylı seçin!', 'error');
+      return;
+    }
 
-  const btn = document.getElementById('uploadBtn');
-  const progressWrap = document.getElementById('progressWrap');
-  const progressBar = document.getElementById('progressBar');
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spinner"></span>';
-  progressWrap.classList.add('show');
+    const formData = new FormData(form);
+    // Əgər input-lar əllə doldurulubsa, onları da əlavə edirik
+    formData.set('pdf', pdfInput.files[0]);
+    const coverInput = document.getElementById('coverInput');
+    if (coverInput.files.length) {
+      formData.set('cover', coverInput.files[0]);
+    }
 
-  const xhr = new XMLHttpRequest();
-  xhr.open('POST', '/api/books');
-  xhr.upload.addEventListener('progress', (evt) => {
-    if (evt.lengthComputable) {
-      const pct = Math.round((evt.loaded / evt.total) * 100);
-      progressBar.style.width = pct + '%';
+    const uploadBtn = document.getElementById('uploadBtn');
+    const progressWrap = document.getElementById('progressWrap');
+    const progressBar = document.getElementById('progressBar');
+
+    uploadBtn.disabled = true;
+    progressWrap.style.display = 'block';
+    progressBar.style.width = '0%';
+
+    try {
+      // Fayl yüklənmə faizini hesablamaq üçün XMLHttpRequest istifadə edirik
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', '/api/books', true);
+
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable) {
+          const percentComplete = (event.loaded / event.total) * 100;
+          progressBar.style.width = percentComplete + '%';
+        }
+      };
+
+      xhr.onload = function () {
+        if (xhr.status === 201) {
+          showToast('Kitab uğurla yükləndi!');
+          closeModal();
+          fetchBooks();
+        } else {
+          const response = JSON.parse(xhr.responseText);
+          showToast(response.error || 'Yüklənmə zamanı xəta oldu!', 'error');
+        }
+        uploadBtn.disabled = false;
+        progressWrap.style.display = 'none';
+      };
+
+      xhr.onerror = function () {
+        showToast('Serverlə əlaqə kəsildi!', 'error');
+        uploadBtn.disabled = false;
+        progressWrap.style.display = 'none';
+      };
+
+      xhr.send(formData);
+
+    } catch (err) {
+      console.error(err);
+      showToast('Gözlənilməz xəta baş verdi', 'error');
+      uploadBtn.disabled = false;
+      progressWrap.style.display = 'none';
     }
   });
-  xhr.onload = () => {
-    btn.disabled = false;
-    btn.innerHTML = '<span class="btn-label">Yüklə</span>';
-    let json = {};
-    try { json = JSON.parse(xhr.responseText); } catch (e) {}
-    if (xhr.status >= 200 && xhr.status < 300) {
-      showToast('Kitab uğurla yükləndi! 🎉', 'success');
-      closeModal();
-      loadBooks();
-    } else {
-      showToast(json.error || 'Yükləmə zamanı xəta baş verdi', 'error');
-      progressWrap.classList.remove('show');
-    }
-  };
-  xhr.onerror = () => {
-    btn.disabled = false;
-    btn.innerHTML = '<span class="btn-label">Yüklə</span>';
-    showToast('Şəbəkə xətası baş verdi', 'error');
-  };
-  xhr.send(fd);
-});
+}
 
-init();
+// 5. Kitab Silmək Funksiyası
+async function deleteBook(id) {
+  if (!confirm('Bu kitabı silmək istədiyinizdən əminsiniz?')) return;
+
+  try {
+    const res = await fetch(`/api/books/${id}`, {
+      method: 'DELETE'
+    });
+    const data = await res.json();
+
+    if (data.success) {
+      showToast('Kitab silindi');
+      fetchBooks();
+    } else {
+      showToast(data.error || 'Silinmə uğursuz oldu', 'error');
+    }
+  } catch (err) {
+    console.error(err);
+    showToast('Xəta baş verdi', 'error');
+  }
+}
