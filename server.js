@@ -41,8 +41,9 @@ app.use(express.static(path.join(__dirname, 'public')));
 // ---------- Multer (RAM-da müvəqqəti saxlamaq üçün) ----------
 const storage = multer.memoryStorage();
 const upload = multer({
-  storage,
-  limits: { fileSize: 50 * 1024 * 1024 }, // Limit artıq 50 MB-dır!
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 50 * 1024 * 1024 } // 50MB limit
+}); // Limit artıq 50 MB-dır!
   fileFilter: (req, file, cb) => {
     if (file.mimetype === 'application/pdf' || file.originalname.toLowerCase().endsWith('.pdf')) {
       cb(null, true);
