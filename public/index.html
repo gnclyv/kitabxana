@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="az">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vərəq — Rəqəmsal Kitabxanan</title>
+<link rel="stylesheet" href="/css/style.css">
+<style>
+  .hero {
+    display: grid; grid-template-columns: 1.05fr 0.95fr; gap: 60px;
+    align-items: center; padding: 70px 0 40px;
+    position: relative; z-index: 1;
+  }
+  .eyebrow {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-size: 12.5px; letter-spacing: 1.6px; text-transform: uppercase;
+    color: var(--gold-bright); margin-bottom: 20px; font-weight: 600;
+  }
+  .eyebrow::before { content: ''; width: 22px; height: 1px; background: var(--gold); }
+  .hero h1 {
+    font-family: var(--serif); font-weight: 600; font-size: 56px; line-height: 1.08;
+    margin: 0 0 22px; letter-spacing: -0.5px;
+  }
+  .hero h1 em {
+    font-style: italic; font-weight: 500;
+    background: linear-gradient(100deg, var(--gold-bright), var(--ember) 80%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .hero p.lead { font-size: 17px; color: var(--cream-dim); line-height: 1.7; max-width: 480px; margin-bottom: 32px; }
+  .hero-actions { display: flex; gap: 14px; }
+  .stat-row { display: flex; gap: 34px; margin-top: 46px; }
+  .stat-row div b { display: block; font-family: var(--serif); font-size: 26px; color: var(--gold-bright); }
+  .stat-row div span { font-size: 12.5px; color: var(--cream-dim); letter-spacing: 0.3px; }
+
+  /* ---- Animated book ---- */
+  .book-stage { display: flex; justify-content: center; align-items: center; perspective: 1400px; }
+  .book {
+    width: 300px; height: 380px; position: relative; transform-style: preserve-3d;
+    animation: bookFloat 5s ease-in-out infinite;
+  }
+  @keyframes bookFloat { 0%,100% { transform: translateY(0) rotateZ(-1deg);} 50% { transform: translateY(-14px) rotateZ(1deg);} }
+  .book-cover {
+    position: absolute; inset: 0; border-radius: 6px 10px 10px 6px;
+    background: linear-gradient(135deg, #7a2626, var(--ember) 55%, #8f3838);
+    box-shadow: 12px 22px 50px rgba(0,0,0,0.55), inset -6px 0 14px rgba(0,0,0,0.35);
+    display: flex; align-items: center; justify-content: center;
+    border: 1px solid rgba(242,233,216,0.15);
+  }
+  .book-cover::after {
+    content: ''; position: absolute; left: 14px; top: 14px; right: 14px; bottom: 14px;
+    border: 1px solid rgba(242,233,216,0.25); border-radius: 3px;
+  }
+  .book-cover .glyph { font-family: var(--serif); font-size: 60px; color: var(--gold-bright); opacity: 0.9; }
+  .page {
+    position: absolute; top: 6px; bottom: 6px; right: 6px; width: calc(100% - 30px);
+    background: linear-gradient(120deg, #f2e9d8, #e6dcc6);
+    border-radius: 2px 8px 8px 2px; transform-origin: left center;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.25);
+    animation: turnPage 6s ease-in-out infinite;
+  }
+  .page.p1 { animation-delay: 0s; }
+  .page.p2 { animation-delay: 1.2s; background: linear-gradient(120deg, #eee3cd, #ddd0b4); }
+  .page.p3 { animation-delay: 2.4s; background: linear-gradient(120deg, #e6dbc4, #d3c4a3); }
+  @keyframes turnPage {
+    0%, 60% { transform: rotateY(0deg); }
+    75% { transform: rotateY(-140deg); }
+    90%, 100% { transform: rotateY(-160deg); opacity: 0; }
+  }
+  .book-glow {
+    position: absolute; inset: -40px; border-radius: 50%;
+    background: radial-gradient(circle, rgba(201,162,39,0.25), transparent 65%);
+    filter: blur(10px); z-index: -1; animation: glowPulse 5s ease-in-out infinite;
+  }
+  @keyframes glowPulse { 0%,100% { opacity: 0.5; transform: scale(0.95);} 50% { opacity: 0.9; transform: scale(1.05);} }
+
+  /* ---- Auth panel ---- */
+  .auth-section { padding: 20px 0 90px; display: flex; justify-content: center; position: relative; z-index: 1; }
+  .auth-card { width: 420px; padding: 40px 38px; text-align: center; }
+  .tabs { display: flex; background: rgba(0,0,0,0.25); border-radius: 10px; padding: 4px; margin-bottom: 28px; border: 1px solid var(--line); }
+  .tab-btn {
+    flex: 1; padding: 10px; border: none; background: transparent; color: var(--cream-dim);
+    border-radius: 7px; font-weight: 600; font-size: 14px; transition: all .25s ease;
+  }
+  .tab-btn.active { background: linear-gradient(135deg, var(--gold-bright), var(--gold)); color: #1a1408; }
+  .auth-card h2 { font-family: var(--serif); font-size: 26px; margin: 0 0 6px; }
+  .auth-card .sub { color: var(--cream-dim); font-size: 13.5px; margin-bottom: 26px; }
+  .form-view { display: none; animation: fadeSlide .4s ease; }
+  .form-view.active { display: block; }
+  @keyframes fadeSlide { from { opacity: 0; transform: translateX(10px);} to { opacity: 1; transform: translateX(0);} }
+  .full-btn { width: 100%; justify-content: center; padding: 13px; margin-top: 6px; }
+  .err-msg { color: #f2a5a5; font-size: 13px; margin-top: 10px; min-height: 16px; }
+
+  .features { padding: 30px 0 80px; position: relative; z-index: 1; }
+  .feat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 26px; margin-top: 40px; }
+  .feat-card { padding: 28px; transition: transform .3s ease, border-color .3s ease; }
+  .feat-card:hover { transform: translateY(-6px); border-color: rgba(201,162,39,0.35); }
+  .feat-icon { width: 44px; height: 44px; border-radius: 10px; background: rgba(201,162,39,0.12); display:flex; align-items:center; justify-content:center; font-size: 20px; margin-bottom: 16px; }
+  .feat-card h3 { font-family: var(--serif); font-size: 19px; margin: 0 0 8px; }
+  .feat-card p { color: var(--cream-dim); font-size: 14px; line-height: 1.6; margin: 0; }
+  .section-title { text-align: center; }
+  .section-title .eyebrow { justify-content: center; }
+  .section-title h2 { font-family: var(--serif); font-size: 34px; margin: 0; }
+
+  @media (max-width: 900px) {
+    .hero { grid-template-columns: 1fr; padding-top: 40px; }
+    .book-stage { order: -1; }
+    .hero h1 { font-size: 40px; }
+    .feat-grid { grid-template-columns: 1fr; }
+    .auth-card { width: 100%; padding: 32px 24px; }
+  }
+</style>
+</head>
+<body>
+  <div class="pages-bg" id="pagesBg"></div>
+  <div class="toast-wrap" id="toastWrap"></div>
+
+  <nav class="nav">
+    <div class="brand"><span class="brand-mark">📖</span> Vərəq</div>
+    <div class="nav-right">
+      <a href="#auth" class="btn btn-ghost">Daxil ol</a>
+    </div>
+  </nav>
+
+  <div class="container">
+    <section class="hero">
+      <div>
+        <div class="eyebrow">Rəqəmsal kitabxana</div>
+        <h1>Kitablarını yüklə,<br><em>hamı oxusun.</em></h1>
+        <p class="lead">Vərəq — sənin öz PDF kitabxanan. Qeydiyyatdan keç, kitablarını yüklə, başqalarının payladığı yüzlərlə kitabı kəşf et və birbaşa brauzerdə oxu.</p>
+        <div class="hero-actions">
+          <a href="#auth" class="btn btn-primary" onclick="selectTab('register')">Qeydiyyatdan keç</a>
+          <a href="#auth" class="btn btn-ghost" onclick="selectTab('login')">Artıq hesabım var</a>
+        </div>
+        <div class="stat-row">
+          <div><b id="statBooks">—</b><span>Yüklənmiş kitab</span></div>
+          <div><b id="statUsers">—</b><span>Oxucu</span></div>
+          <div><b id="statDownloads">—</b><span>Endirmə</span></div>
+        </div>
+      </div>
+      <div class="book-stage">
+        <div class="book">
+          <div class="book-glow"></div>
+          <div class="book-cover"><span class="glyph">V</span></div>
+          <div class="page p3"></div>
+          <div class="page p2"></div>
+          <div class="page p1"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="auth-section" id="auth">
+      <div class="panel auth-card">
+        <div class="tabs">
+          <button class="tab-btn active" id="tabLogin" onclick="selectTab('login')">Daxil ol</button>
+          <button class="tab-btn" id="tabRegister" onclick="selectTab('register')">Qeydiyyat</button>
+        </div>
+
+        <div class="form-view active" id="viewLogin">
+          <h2>Xoş gəldin</h2>
+          <div class="sub">Kitabxanana daxil olmaq üçün hesabına gir</div>
+          <form id="loginForm">
+            <div class="field">
+              <label>İstifadəçi adı və ya email</label>
+              <input type="text" name="identifier" required autocomplete="username">
+            </div>
+            <div class="field">
+              <label>Şifrə</label>
+              <input type="password" name="password" required autocomplete="current-password">
+            </div>
+            <button class="btn btn-primary full-btn" type="submit" id="loginBtn">
+              <span class="btn-label">Daxil ol</span>
+            </button>
+            <div class="err-msg" id="loginErr"></div>
+          </form>
+        </div>
+
+        <div class="form-view" id="viewRegister">
+          <h2>Hesab yarat</h2>
+          <div class="sub">Bir neçə saniyəyə kitabxanaya qoşul</div>
+          <form id="registerForm">
+            <div class="field">
+              <label>İstifadəçi adı</label>
+              <input type="text" name="username" required minlength="3" autocomplete="username">
+            </div>
+            <div class="field">
+              <label>Email</label>
+              <input type="email" name="email" required autocomplete="email">
+            </div>
+            <div class="field">
+              <label>Şifrə</label>
+              <input type="password" name="password" required minlength="6" autocomplete="new-password">
+            </div>
+            <button class="btn btn-primary full-btn" type="submit" id="registerBtn">
+              <span class="btn-label">Qeydiyyatdan keç</span>
+            </button>
+            <div class="err-msg" id="registerErr"></div>
+          </form>
+        </div>
+      </div>
+    </section>
+
+    <section class="features">
+      <div class="section-title reveal">
+        <div class="eyebrow">Necə işləyir</div>
+        <h2>Sadə, sürətli, gözəl</h2>
+      </div>
+      <div class="feat-grid">
+        <div class="panel feat-card reveal"><div class="feat-icon">🔐</div><h3>Təhlükəsiz giriş</h3><p>Şifrələr hash-lənərək saxlanılır, sənin kitabxanan yalnız daxil olanlara açıqdır.</p></div>
+        <div class="panel feat-card reveal"><div class="feat-icon">⬆️</div><h3>Asan yükləmə</h3><p>Sürükləyib burax və ya seç — PDF kitabın saniyələr içində kitabxanaya əlavə olunur.</p></div>
+        <div class="panel feat-card reveal"><div class="feat-icon">📚</div><h3>Birbaşa oxu</h3><p>Endirmədən brauzerdə birbaşa oxu, ya da öz cihazına yüklə.</p></div>
+      </div>
+    </section>
+  </div>
+
+  <script src="/js/common.js"></script>
+  <script>
+    // Floating pages background
+    const bg = document.getElementById('pagesBg');
+    for (let i = 0; i < 18; i++) {
+      const s = document.createElement('span');
+      s.style.left = Math.random() * 100 + '%';
+      s.style.animationDuration = (14 + Math.random() * 12) + 's';
+      s.style.animationDelay = (Math.random() * 14) + 's';
+      s.style.width = (14 + Math.random() * 14) + 'px';
+      s.style.height = s.style.width;
+      bg.appendChild(s);
+    }
+
+    function selectTab(name) {
+      document.getElementById('tabLogin').classList.toggle('active', name === 'login');
+      document.getElementById('tabRegister').classList.toggle('active', name === 'register');
+      document.getElementById('viewLogin').classList.toggle('active', name === 'login');
+      document.getElementById('viewRegister').classList.toggle('active', name === 'register');
+    }
+
+    async function setLoading(btn, loading, label) {
+      btn.disabled = loading;
+      btn.innerHTML = loading ? '<span class="spinner"></span>' : `<span class="btn-label">${label}</span>`;
+    }
+
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById('loginBtn');
+      const errBox = document.getElementById('loginErr');
+      errBox.textContent = '';
+      const data = Object.fromEntries(new FormData(e.target));
+      await setLoading(btn, true);
+      try {
+        const res = await fetch('/api/login', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data) });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || 'Xəta baş verdi');
+        showToast('Xoş gəldin, ' + json.user.username + '!', 'success');
+        setTimeout(() => window.location.href = '/kitabxana', 500);
+      } catch (err) {
+        errBox.textContent = err.message;
+        await setLoading(btn, false, 'Daxil ol');
+      }
+    });
+
+    document.getElementById('registerForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById('registerBtn');
+      const errBox = document.getElementById('registerErr');
+      errBox.textContent = '';
+      const data = Object.fromEntries(new FormData(e.target));
+      await setLoading(btn, true);
+      try {
+        const res = await fetch('/api/register', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data) });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || 'Xəta baş verdi');
+        showToast('Hesab yaradıldı! Xoş gəldin, ' + json.user.username, 'success');
+        setTimeout(() => window.location.href = '/kitabxana', 500);
+      } catch (err) {
+        errBox.textContent = err.message;
+        await setLoading(btn, false, 'Qeydiyyatdan keç');
+      }
+    });
+
+    // Reveal on scroll
+    const io = new IntersectionObserver((entries) => {
+      entries.forEach(en => { if (en.isIntersecting) en.target.classList.add('in'); });
+    }, { threshold: 0.15 });
+    document.querySelectorAll('.reveal').forEach(el => io.observe(el));
+
+    // If already logged in, go straight to library
+    (async () => {
+      const res = await fetch('/api/me');
+      const json = await res.json();
+      if (json.user) window.location.href = '/kitabxana';
+    })();
+
+    // Load public-ish stats (requires login normally; show placeholders if not authed)
+    (async () => {
+      try {
+        const res = await fetch('/api/stats');
+        if (res.ok) {
+          const s = await res.json();
+          document.getElementById('statBooks').textContent = s.totalBooks;
+          document.getElementById('statUsers').textContent = s.totalUsers;
+          document.getElementById('statDownloads').textContent = s.totalDownloads;
+        } else {
+          document.getElementById('statBooks').textContent = '—';
+          document.getElementById('statUsers').textContent = '—';
+          document.getElementById('statDownloads').textContent = '—';
+        }
+      } catch(e) {}
+    })();
+  </script>
+</body>
+</html>
