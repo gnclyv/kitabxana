@@ -31,7 +31,7 @@ app.use(session({
   secret: process.env.SESSION_SECRET || 'kitabxana-gizli-acar-' + crypto.randomBytes(16).toString('hex'),
   resave: false,
   saveUninitialized: false,
-  cookie: { 
+  cookie: {
     maxAge: 1000 * 60 * 60 * 24 * 7,
     secure: process.env.NODE_ENV === 'production',
     sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
@@ -69,7 +69,7 @@ app.post('/api/register', async (req, res) => {
   try {
     const { username, email, password } = req.body;
     if (!username || !email || !password) return res.status(400).json({ error: 'Bütün xanaları doldurun' });
-    
+
     const uname = username.trim();
     const email2 = email.trim().toLowerCase();
     const exists = await db.userExists(uname, email2);
@@ -78,10 +78,13 @@ app.post('/api/register', async (req, res) => {
     const hash = await bcrypt.hash(password, 10);
     const color = AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)];
     const user = await db.createUser({ username: uname, email: email2, password_hash: hash, avatar_color: color });
-    
+
     req.session.userId = user.id;
     res.json({ user: publicUser(user) });
-  } catch (e) { res.status(500).json({ error: 'Server xətası' }); }
+  } catch (e) {
+    console.error('REGISTER ERROR:', e);
+    res.status(500).json({ error: 'Server xətası' });
+  }
 });
 
 app.post('/api/login', async (req, res) => {
@@ -91,16 +94,26 @@ app.post('/api/login', async (req, res) => {
     if (user && await bcrypt.compare(password, user.password_hash)) {
       req.session.userId = user.id;
       res.json({ user: publicUser(user) });
-    } else { res.status(401).json({ error: 'Yanlış giriş məlumatları' }); }
-  } catch (e) { res.status(500).json({ error: 'Server xətası' }); }
+    } else {
+      res.status(401).json({ error: 'Yanlış giriş məlumatları' });
+    }
+  } catch (e) {
+    console.error('LOGIN ERROR:', e);
+    res.status(500).json({ error: 'Server xətası' });
+  }
 });
 
 app.post('/api/logout', (req, res) => { req.session.destroy(() => res.json({ ok: true })); });
 
 app.get('/api/me', async (req, res) => {
-  if (!req.session.userId) return res.json({ user: null });
-  const user = await db.findUserById(req.session.userId);
-  res.json({ user: user ? publicUser(user) : null });
+  try {
+    if (!req.session.userId) return res.json({ user: null });
+    const user = await db.findUserById(req.session.userId);
+    res.json({ user: user ? publicUser(user) : null });
+  } catch (e) {
+    console.error('ME ERROR:', e);
+    res.status(500).json({ error: 'Server xətası' });
+  }
 });
 
 // ---------- BOOKS API ----------
@@ -108,14 +121,17 @@ app.get('/api/books', requireAuth, async (req, res) => {
   try {
     const rows = await db.listBooks({ q: (req.query.q || ''), category: (req.query.category || '') });
     res.json({ books: rows.map(r => ({ ...r, id: r.id, title: r.title, author: r.author, description: r.description, category: r.category, filesize: r.filesize, cover_image: r.cover_image, uploaded_by: r.uploaded_by, downloads: r.downloads })) });
-  } catch (e) { res.status(500).json({ error: 'Kitablar yüklənmədi' }); }
+  } catch (e) {
+    console.error('LIST BOOKS ERROR:', e);
+    res.status(500).json({ error: 'Kitablar yüklənmədi' });
+  }
 });
 
 app.post('/api/books', requireAuth, upload.single('pdf'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'PDF faylı seçilməyib' });
     const uniqueName = Date.now() + '-' + crypto.randomBytes(6).toString('hex') + '.pdf';
-    
+
     const { error } = await supabase.storage.from('books').upload(uniqueName, req.file.buffer, { contentType: 'application/pdf' });
     if (error) throw error;
 
@@ -130,15 +146,22 @@ app.post('/api/books', requireAuth, upload.single('pdf'), async (req, res) => {
       uploaded_by: req.session.userId
     });
     res.json({ id: book.id });
-  } catch (e) { res.status(500).json({ error: 'Yükləmə xətası' }); }
+  } catch (e) {
+    console.error('UPLOAD ERROR:', e);
+    res.status(500).json({ error: 'Yükləmə xətası' });
+  }
 });
+
 app.get('/api/books/:id/download', requireAuth, async (req, res) => {
   try {
     const book = await db.findBookById(req.params.id);
     if (!book) return res.status(404).json({ error: 'Kitab tapılmadı' });
     await db.incrementDownloads(book.id);
     res.redirect(book.filename);
-  } catch (e) { res.status(500).json({ error: 'Yükləmə xətası' }); }
+  } catch (e) {
+    console.error('DOWNLOAD ERROR:', e);
+    res.status(500).json({ error: 'Yükləmə xətası' });
+  }
 });
 
 app.get('/api/books/:id/view', requireAuth, async (req, res) => {
@@ -146,7 +169,10 @@ app.get('/api/books/:id/view', requireAuth, async (req, res) => {
     const book = await db.findBookById(req.params.id);
     if (!book) return res.status(404).json({ error: 'Kitab tapılmadı' });
     res.redirect(book.filename);
-  } catch (e) { res.status(500).json({ error: 'Fayl oxunarkən xəta' }); }
+  } catch (e) {
+    console.error('VIEW ERROR:', e);
+    res.status(500).json({ error: 'Fayl oxunarkən xəta' });
+  }
 });
 
 app.delete('/api/books/:id', requireAuth, async (req, res) => {
@@ -156,19 +182,25 @@ app.delete('/api/books/:id', requireAuth, async (req, res) => {
     if (book.uploaded_by !== req.session.userId) {
       return res.status(403).json({ error: 'Yalnız öz kitabınızı silə bilərsiniz' });
     }
-    
+
     const fileName = book.filename.split('/').pop();
     await supabase.storage.from('books').remove([fileName]);
     await db.deleteBook(book.id);
     res.json({ success: true });
-  } catch (e) { res.status(500).json({ error: 'Silinmə xətası' }); }
+  } catch (e) {
+    console.error('DELETE ERROR:', e);
+    res.status(500).json({ error: 'Silinmə xətası' });
+  }
 });
 
 app.get('/api/stats', async (req, res) => {
   try {
     const stats = await db.getStats();
     res.json(stats);
-  } catch (e) { res.status(500).json({ totalBooks: 0 }); }
+  } catch (e) {
+    console.error('STATS ERROR:', e);
+    res.status(500).json({ totalBooks: 0 });
+  }
 });
 
 // ---------- Səhifə Yönləndirmələri ----------
@@ -181,6 +213,14 @@ app.get('*', (req, res, next) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-app.listen(PORT, () => {
-  console.log(`\n📚 Kitabxana saytı işə düşdü: http://localhost:${PORT}\n`);
-});
+// ---------- Server / Vercel export ----------
+// Yalnız lokal işə salınanda port dinlə (məs. `node server.js`).
+// Vercel bu faylı özü import edib serverless funksiya kimi çağırır,
+// ona görə app.listen() Vercel-də ÇAĞIRILMAMALIDIR.
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`\n📚 Kitabxana saytı işə düşdü: http://localhost:${PORT}\n`);
+  });
+}
+
+module.exports = app;
