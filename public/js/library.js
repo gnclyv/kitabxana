@@ -23,11 +23,20 @@ app.use(express.urlencoded({ extended: true }));
 app.set('trust proxy', 1);
 
 // Sessiya konfiqurasiyası (Vercel və Localhost üçün uyğunlaşdırılmış)
+const sessionStore = new PgSession({
+  conString: process.env.DATABASE_URL,
+  tableName: 'session',
+  createTableIfMissing: true, // 'session' cədvəli yoxdursa avtomatik yaradılsın
+  ssl: { rejectUnauthorized: false } // Neon Postgres SSL tələb edir
+});
+
+// Sessiya bazasında xəta olarsa artıq sükutla uduldma yerinə loglanır
+sessionStore.on('error', (err) => {
+  console.error('SESSION STORE XƏTASI:', err);
+});
+
 app.use(session({
-  store: new PgSession({
-    conString: process.env.DATABASE_URL,
-    tableName: 'session'
-  }),
+  store: sessionStore,
   secret: process.env.SESSION_SECRET || 'kitabxana-gizli-acar-' + crypto.randomBytes(16).toString('hex'),
   resave: false,
   saveUninitialized: false,
